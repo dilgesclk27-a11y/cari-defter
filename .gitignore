@@ -1,0 +1,5 @@
+# Müşteri verisi içeren dosyalar asla GitHub'a yüklenmesin
+*.json
+*.xls
+*.xlsx
+*.tsv

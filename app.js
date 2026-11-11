@@ -4,7 +4,7 @@
    Tüm veriler telefonda (IndexedDB) saklanır. Tutarlar sent (1/100 $)
    cinsinden tam sayı olarak tutulur; kuruş/sent hatası olmaz.
    ===================================================================== */
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const CUR = '$';
 const LS_KEY = 'cari-defter-state';
 const METHODS = ['Nakit', 'Sanal'];
@@ -271,7 +271,7 @@ function customerListHtml(bal) {
   const last = new Map();
   for (const t of state.tx) { const v = t.date + (t.createdAt || 0); if (!last.has(t.customerId) || last.get(t.customerId) < v) last.set(t.customerId, v); }
   let list = state.customers.filter(c => (!c.archived || state.settings.showArchived) &&
-    (!q || fold(c.name + ' ' + (c.phone || '') + ' ' + (c.address || '')).includes(q)));
+    (!q || fold(c.name + ' ' + (c.code || '') + ' ' + (c.phone || '') + ' ' + (c.address || '')).includes(q)));
   const s = state.settings.sort;
   if (s === 'balance') list.sort((a, b) => (bal.get(b.id) || 0) - (bal.get(a.id) || 0) || nameCmp(a, b));
   else if (s === 'recent') list.sort((a, b) => String(last.get(b.id) || '').localeCompare(String(last.get(a.id) || '')) || nameCmp(a, b));
@@ -284,7 +284,7 @@ function customerListHtml(bal) {
   return '<div class="list">' + list.map(c => {
     const b = bal.get(c.id) || 0;
     const l = last.get(c.id);
-    const sub = [c.address, l ? 'Son işlem ' + fmtDate(String(l).slice(0, 10)) : ''].filter(Boolean).join(' · ');
+    const sub = [c.code ? 'Kod ' + c.code : '', c.address, l ?'Son işlem ' + fmtDate(String(l).slice(0, 10)) : ''].filter(Boolean).join(' · ');
     return `<button class="row" data-act="go" data-to="c/${c.id}">
       <div class="rl"><div class="rn">${esc(c.name)}${c.archived ? ' <span class="badge b-opening">Pasif</span>' : ''}</div>${sub ? `<div class="rs">${esc(sub)}</div>` : ''}</div>
       <div class="rb ${balClass(b)}">${money(b)}</div></button>`;
@@ -308,6 +308,7 @@ function viewCustomer(cid) {
       <div class="lbl">Güncel Bakiye</div>
       <div class="big ${balClass(bal)}">${money(bal)}</div>
       ${bal < 0 ? '<div class="tag">Müşteri alacaklı (fazla ödeme)</div>' : ''}
+      ${c.code ? `<div class="sub">Kart kodu: ${esc(c.code)}</div>` : ''}
       ${c.phone ? `<a class="sub link" href="tel:${esc(c.phone.replace(/\s/g, ''))}">${esc(c.phone)}</a>` : ''}
       ${c.address ? `<div class="sub">${esc(c.address)}</div>` : ''}
       ${c.note ? `<div class="sub">${esc(c.note)}</div>` : ''}
@@ -732,6 +733,7 @@ function viewCustomerForm(cid) {
   }
   const body = `
     <div class="field"><label>Müşteri adı *</label><input id="f-name" value="${esc(v.name)}" autocomplete="off" autocapitalize="words"></div>
+    <div class="field"><label>Kart kodu</label><input id="f-code" value="${esc(v.code || '')}" autocomplete="off" placeholder="İsteğe bağlı"></div>
     <div class="field"><label>Telefon</label><input id="f-phone" type="tel" value="${esc(v.phone)}" placeholder="05xx xxx xx xx" autocomplete="off"></div>
     <div class="field"><label>Adres / bölge</label><input id="f-addr" value="${esc(v.address)}" autocomplete="off"></div>
     <div class="field"><label>Not</label><textarea id="f-note" rows="2">${esc(v.note)}</textarea></div>
@@ -749,11 +751,11 @@ async function saveCust() {
   if (!name) return alertBox('Müşteri adı boş olamaz.');
   const dup = state.customers.find(c => c.id !== id && fold(c.name) === fold(name));
   if (dup && !(await confirmBox(`“${esc(dup.name)}” adında bir müşteri zaten var. Yine de kaydedilsin mi?`, { ok: 'Kaydet' }))) return;
-  const phone = $('#f-phone').value.trim(), address = $('#f-addr').value.trim(), note = $('#f-note').value.trim();
+  const code = $('#f-code').value.trim(), phone = $('#f-phone').value.trim(), address = $('#f-addr').value.trim(), note = $('#f-note').value.trim();
   const now = Date.now();
   if (id) {
     const c = custById(id);
-    Object.assign(c, { name, phone, address, note, updatedAt: now });
+    Object.assign(c, { name, code, phone, address, note, updatedAt: now });
     await persist();
     toast('Kaydedildi');
     back('c/' + id);
@@ -766,7 +768,7 @@ async function saveCust() {
       open = ($('input[name=fdir]:checked') || {}).value === 'credit' ? -a : a;
     }
     const date = $('#f-odate').value || today();
-    const c = { id: uid(), name, phone, address, note, createdAt: now };
+    const c = { id: uid(), name, code, phone, address, note, createdAt: now };
     state.customers.push(c);
     if (open) state.tx.push({ id: uid(), type: 'opening', customerId: c.id, date, note: '', total: open, createdAt: now });
     await persist();
@@ -1019,8 +1021,8 @@ function buildXlsx() {
   const lastDate = new Map();
   for (const t of state.tx) if (!lastDate.has(t.customerId) || lastDate.get(t.customerId) < t.date) lastDate.set(t.customerId, t.date);
   let total = 0;
-  const cRows = cust.map(c => { const b = bal.get(c.id) || 0; total += b; return [c.name, c.phone || '', c.address || '', c.note || '', b, lastDate.get(c.id) || '', c.archived ? 'Pasif' : 'Aktif']; });
-  cRows.push(['TOPLAM', '', '', '', total, '', '']);
+  const cRows = cust.map(c => { const b = bal.get(c.id) || 0; total += b; return [c.code || '', c.name, c.phone || '', c.address || '', c.note || '', b, lastDate.get(c.id) || '', c.archived ? 'Pasif' : 'Aktif']; });
+  cRows.push(['', 'TOPLAM', '', '', '', total, '', '']);
   const hRows = [], dRows = [];
   for (const c of cust) {
     for (const e of ledger(c.id)) {
@@ -1035,7 +1037,7 @@ function buildXlsx() {
   }
   const pRows = [...state.products].sort(nameCmp).map(p => [p.name, p.price, p.archived ? 'Pasif' : 'Aktif']);
   return XL.workbook([
-    { name: 'Cariler', cols: [{ h: 'Müşteri', w: 32 }, { h: 'Telefon', w: 16 }, { h: 'Adres', w: 30 }, { h: 'Not', w: 24 }, { h: 'Bakiye ($)', t: 'm', w: 16 }, { h: 'Son işlem', t: 'd', w: 12 }, { h: 'Durum', w: 9 }], rows: cRows },
+    { name: 'Cariler', cols: [{ h: 'Kart kodu', w: 14 }, { h: 'Müşteri', w: 32 }, { h: 'Telefon', w: 16 }, { h: 'Adres', w: 30 }, { h: 'Not', w: 24 }, { h: 'Bakiye ($)', t: 'm', w: 16 }, { h: 'Son işlem', t: 'd', w: 12 }, { h: 'Durum', w: 9 }], rows: cRows },
     { name: 'Hareketler', cols: [{ h: 'Tarih', t: 'd', w: 12 }, { h: 'Müşteri', w: 28 }, { h: 'İşlem', w: 10 }, { h: 'Ürünler', w: 44 }, { h: 'Borç ($)', t: 'm', w: 14 }, { h: 'Alacak ($)', t: 'm', w: 14 }, { h: 'Bakiye ($)', t: 'm', w: 14 }, { h: 'Ödeme şekli', w: 18 }, { h: 'Alınan TL', t: 'm', w: 14 }, { h: 'Kur', t: 'n', w: 10 }, { h: 'Açıklama', w: 36 }], rows: hRows },
     { name: 'Satış Detayı', cols: [{ h: 'Tarih', t: 'd', w: 12 }, { h: 'Müşteri', w: 28 }, { h: 'İşlem', w: 10 }, { h: 'Ürün', w: 32 }, { h: 'Adet', t: 'n', w: 9 }, { h: 'Birim fiyat ($)', t: 'm', w: 15 }, { h: 'Tutar ($)', t: 'm', w: 14 }, { h: 'KDV %', t: 'n', w: 8 }], rows: dRows },
     { name: 'Ürünler', cols: [{ h: 'Ürün', w: 36 }, { h: 'Varsayılan fiyat ($)', t: 'm', w: 18 }, { h: 'Durum', w: 9 }], rows: pRows }

@@ -1,6 +1,6 @@
 /* Çevrimdışı çalışma: uygulama dosyalarını telefonda saklar.
    Güncelleme yayınlarken CACHE sürümünü artırın. */
-const CACHE = 'cari-defter-v1';
+const CACHE = 'cari-defter-v2';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
